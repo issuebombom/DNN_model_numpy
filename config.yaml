@@ -1,0 +1,20 @@
+activation_fn:
+- leaky_relu
+- softmax
+batch_size: 128
+epoch: 10
+eval_metric: f1_score
+init_fn: he_normal
+loss_fn: categorical_cross_entropy
+model:
+- 784
+- 128
+- 64
+- 10
+optim: Adam
+optim_args:
+  epsilon: 1.0e-08
+  lr: 0.001
+seed: 1234
+shuffle: true
+val_size: 0.1
