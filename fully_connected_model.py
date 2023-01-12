@@ -271,6 +271,12 @@ class LossFunction:
 
 class Evaluation:
     """Evaluation
+
+    Function List:
+        accuracy
+        precision
+        recall
+        f1_score
     """
 
     def __init__(self, fn_name:str):
@@ -638,7 +644,7 @@ config = OmegaConf.load('config.yaml')
 print(f"Config details:\n{'='*20}\n\n{OmegaConf.to_yaml(config)}{'='*20}", end="\n\n")
 
 # train (5,000 data)
-history, parameters = train(train_data[:5000], train_labels[:5000], **config)
+history, parameters = train(train_data, train_labels, **config)
 
 # prediction
 prediction = predict(test_data, config.model, parameters, config.activation_fn)
