@@ -40,7 +40,7 @@ def train_validation_split(X, Y, val_size, seed=None, shuffle=False):
     return X_train, Y_train, X_val, Y_val
 
 
-def split_by_batch(X, Y, batch_size, drop=True, seed=None, shuffle=True):
+def split_into_batches(X, Y, batch_size, drop=True, seed=None, shuffle=True):
     """batch size 단위로 데이터를 reshape합니다.
     """
     
@@ -105,7 +105,7 @@ class Initializers:
         """Xavier_initializer
         """
 
-        weights = np.random.randn(input_n_neurons, output_n_neurons) * np.sqrt(1 / input_n_neurons)
+        weights = np.random.randn(input_n_neurons, output_n_neurons) * np.sqrt(1/input_n_neurons)
         biases = np.zeros(output_n_neurons)
         
         return (weights, biases)
@@ -567,7 +567,7 @@ def train(datasets, labels, model, val_size, epoch, batch_size, seed,
     for i in range(epoch):
         
         # split train data by batch size
-        train_X_datasets, train_Y_datasets = split_by_batch(train_X, train_Y, batch_size=batch_size, drop=True, seed=seed, shuffle=shuffle)
+        train_X_datasets, train_Y_datasets = split_into_batches(train_X, train_Y, batch_size=batch_size, drop=True, seed=seed, shuffle=shuffle)
         
         # train iteration
         for batches_X, batches_Y in zip(tqdm(train_X_datasets, leave=False), train_Y_datasets):
@@ -614,7 +614,7 @@ val_score: {evaluation_list[-1][eval_metric]['score']:.6f}"
     return history, parameters
 
 
-def predict(datasets, model, parameters, activation_fn):
+def predict(datasets, parameters, activation_fn):
     """Prediction
     """
     
