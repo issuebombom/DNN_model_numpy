@@ -1,73 +1,5 @@
-from omegaconf import OmegaConf
-from tqdm import tqdm
-from mnist import load_mnist
 import numpy as np
-import matplotlib.pyplot as plt
 
-# DataLoader
-def shuffle_data(X, Y):
-    """Data와 Label을 concat 후 shuffle -> Data, Label 분리
-    """
-    
-    concat = np.concatenate((X, Y), axis=1)
-    np.random.shuffle(concat)
-
-    X = concat[:, :-Y.shape[1]]
-    Y = concat[:, -Y.shape[1]:]
-
-    return X, Y
-
-
-def train_validation_split(X, Y, val_size, seed=None, shuffle=False):
-    """train_validation_split
-    
-    batch단위 split에서 데이터 셔플링을 진행하므로
-    train_val_split 단계에서는 suffle=False를 Default로 설정
-    """
-    
-    np.random.seed(seed)
-    
-    if shuffle:
-        X, Y = shuffle_data(X, Y)
-    
-    boundary = int(X.shape[0] * (1-val_size))
-
-    X_train = X[:boundary]
-    Y_train = Y[:boundary]
-    X_val = X[boundary:]
-    Y_val = Y[boundary:]
-    
-    return X_train, Y_train, X_val, Y_val
-
-
-def split_into_batches(X, Y, batch_size, drop=True, seed=None, shuffle=True):
-    """batch size 단위로 데이터를 reshape합니다.
-    """
-    
-    np.random.seed(seed)
-    
-    if shuffle:
-        X, Y = shuffle_data(X, Y)
-    
-    # batch_size가 딱 맞아 떨어지지 않을 경우
-    if X.shape[0] % batch_size != 0:
-        if drop: # 나머지 뒷단의 데이터를 버린다.
-            num_to_select = X.shape[0] // batch_size * batch_size # 맞아떨어지는 개수
-            X, Y = X[:num_to_select], Y[:num_to_select]
-            
-        else: # 데이터를 추가한다.(랜덤 추출해서)
-            num_to_fill = (X.shape[0] // batch_size + 1) * batch_size - X.shape[0] # 추가로 필요한 개수
-            indices_to_add = np.random.choice(range(0, X.shape[0]+1), num_to_fill, replace=False) # 추가할 인덱스 랜덤 선정
-            X_to_add, Y_to_add = X[indices_to_add], Y[indices_to_add] # 추가할 데이터셋
-            X, Y = np.concatenate((X, X_to_add)), np.concatenate((Y, Y_to_add)) # 기존 데이터에 추가
-    
-    X_batch_datasets = X.reshape(-1, batch_size, X.shape[-1]) # reshape (iter, bs, data)
-    Y_batch_datasets = Y.reshape(-1, batch_size, Y.shape[-1]) # reshape (iter, bs, labels)
-    
-    return X_batch_datasets, Y_batch_datasets
-
-
-# Fully-Connected Model Archetecture
 class Initializers:
     """Initializers
     
@@ -257,7 +189,7 @@ class LossFunction:
         """MSE
         """
 
-        prediction, _ = feed_forward(val_X, parameters, activation_fn)
+        prediction, _ = Computations.feed_forward(val_X, parameters, activation_fn)
         # (x-y)^2의 평균으로 각 row의 loss를 구한 뒤 batch_size 단위의 평균 loss 연산 
         return np.mean((prediction - val_Y) ** 2) / 2 # 미분의 편의를 위해 /2 수행
 
@@ -265,7 +197,7 @@ class LossFunction:
         """Catgorical Cross Entoropy
         """
 
-        prediction, _ = feed_forward(val_X, parameters, activation_fn)
+        prediction, _ = Computations.feed_forward(val_X, parameters, activation_fn)
         return np.mean(-np.sum(prediction * np.log(val_Y+1e-7), axis=1))
 
 
@@ -432,251 +364,117 @@ class Optimizers:
             return parameters
 
 
-def feed_forward(X, parameters, activation_fn): # 
-    """Feed forward
-    
-    미니 배치를 대상으로 피드 포워드를 진행한다.
-    """
-    a_func = ActivationFunction(activation_fn[0])
-    a_func_last = ActivationFunction(activation_fn[1])
-    
-    cache = {"a0": X}
-    layers = len(parameters) // 2
-    for L in range(1, layers+1): # 1, 2, 3
-    
-        prev_a = cache["a" + str(L-1)]
-        W = parameters["W" + str(L)]
-        b = parameters["b" + str(L)]
+class Computations:
 
-        Z = np.matmul(prev_a, W) + b
+    def feed_forward(X, parameters, activation_fn):
+        """Feed forward
         
-        if L == layers: # 마지막 레이어에서 softmax
-            a = a_func_last(Z)
-        else:
-            a = a_func(Z)
-
-        cache["Z" + str(L)] = Z
-        cache["a" + str(L)] = a
-    
-    return a, cache
-
-
-def back_prop(prediction, Y, cache, parameters, activation_fn, loss_fn):
-    """Back Propagation
-    
-    미니배치 단위로 피드포워드한 결과를 대상으로 backward 연산을 진행한다.
-    """
-
-    d_a_func = ActivationFunction(activation_fn[0], derivative=True)
-    d_a_func_last = ActivationFunction(activation_fn[1], derivative=True)
-    
-    gradients = {}
-    layers = len(parameters) // 2
-    
-    for L in range(layers, 0, -1):
+        미니 배치를 대상으로 피드 포워드를 진행한다.
+        """
+        a_func = ActivationFunction(activation_fn[0])
+        a_func_last = ActivationFunction(activation_fn[1])
         
-        Z = cache["Z" + str(L)] # (bs, 10)
-        W = parameters["W" + str(L)]
-        a = cache["a" + str(L)]
-        a_prev = cache["a" + str(L-1)]
+        cache = {"a0": X}
+        layers = len(parameters) // 2
+        for L in range(1, layers+1): # 1, 2, 3
         
-        # 마지막 layer에서 activation에 대한 미분
-        if L == layers:
-            # Softmax에 대한 Cross Entropy 함수 미분
-            if activation_fn[1] == 'softmax' and loss_fn == 'categorical_cross_entropy':
-                a = prediction, Y
-                dZ = d_a_func_last(a) # (bs, 10)
+            prev_a = cache["a" + str(L-1)]
+            W = parameters["W" + str(L)]
+            b = parameters["b" + str(L)]
+
+            Z = np.matmul(prev_a, W) + b
             
-            # sigmoid에 대한 z 미분
-            elif activation_fn[1] == 'sigmoid' and loss_fn == 'mse':
-                da = (prediction - Y) / prediction.shape[-1] # MSE에서 a에 대한 도함수 dE/da, (bs, 10)
-                dZ = da * d_a_func_last(Z)
-            
+            if L == layers: # 마지막 레이어에서 softmax
+                a = a_func_last(Z)
             else:
-                raise Exception(
-                    "You have to choose softmax-categorical_cross_entropy pair \
-or sigmoid-mse pair only"
-                )
+                a = a_func(Z)
+
+            cache["Z" + str(L)] = Z
+            cache["a" + str(L)] = a
+        
+        return a, cache
+
+
+    def back_prop(prediction, Y, cache, parameters, activation_fn, loss_fn):
+        """Back Propagation
+        
+        미니배치 단위로 피드포워드한 결과를 대상으로 backward 연산을 진행한다.
+        """
+
+        d_a_func = ActivationFunction(activation_fn[0], derivative=True)
+        d_a_func_last = ActivationFunction(activation_fn[1], derivative=True)
+        
+        gradients = {}
+        layers = len(parameters) // 2
+        
+        for L in range(layers, 0, -1):
             
-        else: # leaky_relu 미분
-            dZ = da * d_a_func(Z) # (bs, 10)의 곱
+            Z = cache["Z" + str(L)] # (bs, 10)
+            W = parameters["W" + str(L)]
+            a = cache["a" + str(L)]
+            a_prev = cache["a" + str(L-1)]
             
-        dW = np.einsum("ba,bz->baz", a_prev, dZ) # (bs, 64)와 (bs, 10)의 외적 -> (bs, 64, 10)
-        db = dZ * 1 # dZ랑 같음
-        da = np.einsum("bz,wz->bw", dZ, W) # (bs, 10)과 (64, 10)의 내적 -> (bs, 64)
-        
-        # 배치별 기울기값에 대한 평균값을 추가한다.
-        gradients["dW" + str(L)] = np.mean(dW, axis=0)
-        gradients["db" + str(L)] = np.mean(db, axis=0)
-    
-    return gradients
-
-
-def compute_loss(val_X, val_Y, parameters, activation_fn, loss_fn):
-    """MSE
-    
-    미니 배치 단위 평균 loss를 구한다.
-    """
-    l_func = LossFunction(loss_fn)
-    
-    return l_func(val_X, val_Y, parameters, activation_fn)
-
-
-def compute_evaluation(val_X, val_Y, parameters, activation_fn, eval_metric):
-    """Compute Evaluation
-    """
-    
-    # get prediction indices and target indices
-    prediction, _ = feed_forward(val_X, parameters, activation_fn)
-    prediction_indices = np.argmax(prediction, axis=1)
-    target_indices = np.argmax(val_Y, axis=1)
-    
-    # evaluate
-    evaluation_result = {eval_metric: {}}
-    evaluation_metric = Evaluation(eval_metric)
-    calc_result = evaluation_metric(prediction_indices, target_indices)
-
-    if isinstance(calc_result, np.float64):
-        evaluation_result[eval_metric]['score'] = calc_result
-
-    else:
-        evaluation_result[eval_metric]['score'] = calc_result[0]
-        evaluation_result[eval_metric]['score_by_label'] = calc_result[1]
-    
-    return evaluation_result
-    
-
-def train(datasets, labels, model, val_size, epoch, batch_size, seed, 
-          shuffle, init_fn, activation_fn:list, loss_fn, optim, optim_args, eval_metric):
-    """Train & validation
-    """
-    
-    # init parameters
-    initializers = Initializers(init_fn)
-    parameters = initializers.initialize(model, seed=seed)
-    optimizer = Optimizers(optim)(**optim_args)
-    
-    # train validation split
-    train_X, train_Y, val_X, val_Y = train_validation_split(datasets, labels, val_size)
-    
-    # crawling loss and evaluation
-    train_loss_list = []
-    validation_loss_list = []
-    evaluation_list = []
-    best_eval_score = 0.0
-    for i in range(epoch):
-        
-        # split train data by batch size
-        train_X_datasets, train_Y_datasets = split_into_batches(train_X, train_Y, batch_size=batch_size, drop=True, seed=seed, shuffle=shuffle)
-        
-        # train iteration
-        for batches_X, batches_Y in zip(tqdm(train_X_datasets, leave=False), train_Y_datasets):
+            # 마지막 layer에서 activation에 대한 미분
+            if L == layers:
+                # Softmax에 대한 Cross Entropy 함수 미분
+                if activation_fn[1] == 'softmax' and loss_fn == 'categorical_cross_entropy':
+                    a = prediction, Y
+                    dZ = d_a_func_last(a) # (bs, 10)
+                
+                # sigmoid에 대한 z 미분
+                elif activation_fn[1] == 'sigmoid' and loss_fn == 'mse':
+                    da = (prediction - Y) / prediction.shape[-1] # MSE에서 a에 대한 도함수 dE/da, (bs, 10)
+                    dZ = da * d_a_func_last(Z)
+                
+                else:
+                    raise Exception(
+                        "You have to choose softmax-categorical_cross_entropy pair \
+    or sigmoid-mse pair only"
+                    )
+                
+            else: # leaky_relu 미분
+                dZ = da * d_a_func(Z) # (bs, 10)의 곱
+                
+            dW = np.einsum("ba,bz->baz", a_prev, dZ) # (bs, 64)와 (bs, 10)의 외적 -> (bs, 64, 10)
+            db = dZ * 1 # dZ랑 같음
+            da = np.einsum("bz,wz->bw", dZ, W) # (bs, 10)과 (64, 10)의 내적 -> (bs, 64)
             
-            # forward
-            prediction, cache = feed_forward(batches_X, parameters, activation_fn)
-            # backward
-            gradients = back_prop(prediction, batches_Y, cache, parameters, activation_fn, loss_fn)
-            # update
-            parameters = optimizer.update(parameters, gradients)
+            # 배치별 기울기값에 대한 평균값을 추가한다.
+            gradients["dW" + str(L)] = np.mean(dW, axis=0)
+            gradients["db" + str(L)] = np.mean(db, axis=0)
         
-        # validate per epoch
-        # train_loss check
-        train_loss_list.append(compute_loss(train_X, train_Y, parameters, activation_fn, loss_fn)) # 예측연산이 내장되어 있음
-        # validation loss check
-        validation_loss_list.append(compute_loss(val_X, val_Y, parameters, activation_fn, loss_fn))
-        # evaluation
-        eval_result = compute_evaluation(val_X, val_Y, parameters, activation_fn, eval_metric)
-        evaluation_list.append(eval_result)
-    
+        return gradients
+
+
+    def compute_loss(val_X, val_Y, parameters, activation_fn, loss_fn):
+        """MSE
         
-        # update best eval score
-        curr_eval_score = eval_result[eval_metric]['score']
-        best_eval_score = curr_eval_score if curr_eval_score > best_eval_score else best_eval_score
+        미니 배치 단위 평균 loss를 구한다.
+        """
+        l_func = LossFunction(loss_fn)
         
+        return l_func(val_X, val_Y, parameters, activation_fn)
+
+
+    def compute_evaluation(val_X, val_Y, parameters, activation_fn, eval_metric):
+        """Compute Evaluation
+        """
         
-        # verbose
-        print(
-            f"{str(i+1).zfill(3)} Epoch | \
-train_loss: {train_loss_list[-1]:.6f} | \
-val_loss: {validation_loss_list[-1]:.6f} | \
-val_score: {evaluation_list[-1][eval_metric]['score']:.6f}"
-        )
+        # get prediction indices and target indices
+        prediction, _ = Computations.feed_forward(val_X, parameters, activation_fn)
+        prediction_indices = np.argmax(prediction, axis=1)
+        target_indices = np.argmax(val_Y, axis=1)
+        
+        # evaluate
+        evaluation_result = {eval_metric: {}}
+        evaluation_metric = Evaluation(eval_metric)
+        calc_result = evaluation_metric(prediction_indices, target_indices)
 
-    print(f"Best score: {best_eval_score:.6f}")
-    
-    history = {
-        "train_loss": train_loss_list, 
-        "valid_loss": validation_loss_list, 
-        "evaluation": evaluation_list,
-        "best_score": best_eval_score
-    }
+        if isinstance(calc_result, np.float64):
+            evaluation_result[eval_metric]['score'] = calc_result
 
-    return history, parameters
-
-
-def predict(datasets, parameters, activation_fn):
-    """Prediction
-    """
-    
-    prediction, _ = feed_forward(datasets, parameters, activation_fn)
-    prediction_indices = np.argmax(prediction, axis=1).tolist()
-    
-    return prediction_indices
-
-
-
-
-# Load MNIST datasets
-train_set, test_set = load_mnist()
-train_data, train_labels = train_set
-test_data, test_labels = test_set
-
-# normalize
-train_data = train_data / 255
-test_data = test_data / 255
-
-# load config
-config = OmegaConf.load('config.yaml')
-# fix data if you need...
-# config.epoch = 5
-
-# show details
-print(f"Config details:\n{'='*20}\n\n{OmegaConf.to_yaml(config)}{'='*20}", end="\n\n")
-
-# train (5,000 data)
-history, parameters = train(train_data, train_labels, **config)
-
-# prediction
-prediction = predict(test_data, config.model, parameters, config.activation_fn)
-
-
-# Visualize
-# loss
-train_loss = history['train_loss']
-valid_loss = history['valid_loss']
-
-plt.figure(figsize=(15, 5))
-plt.subplot(1, 2, 1)
-x_len = np.arange(1, len(train_loss)+1)
-plt.plot(x_len, train_loss, marker='.', c='blue', label="train_loss")
-plt.plot(x_len, valid_loss, marker='.', c='red', label="valid_loss")
-
-plt.title('Train_Validation Loss')
-plt.legend() # loc='upper right'
-plt.grid()
-plt.xlabel('epoch')
-plt.ylabel('loss')
-
-# evaluation
-metric = ''.join(history['evaluation'][0].keys())
-score = [history['evaluation'][i][metric]['score'] for i in range(len(history['evaluation']))]
-
-plt.subplot(1, 2, 2)
-plt.plot(x_len, score, marker='.', c='green', label=metric)
-
-plt.title('Evaluation Score')
-plt.legend() # loc='upper right'
-plt.grid()
-plt.xlabel('epoch')
-plt.ylabel('score')
-plt.show()
+        else:
+            evaluation_result[eval_metric]['score'] = calc_result[0]
+            evaluation_result[eval_metric]['score_by_label'] = calc_result[1]
+        
+        return evaluation_result
