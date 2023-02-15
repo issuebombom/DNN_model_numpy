@@ -307,39 +307,48 @@ class Optimizers:
             self.beta1 = betas[0]
             self.beta2 = betas[1]
             self.epsilon = epsilon
+            self.m = None
+            self.v = None
 
 
         def update(self, parameters, gradients):
             """Update Parameters with Adam
             """
 
-            m = {key: np.zeros_like(value) for key, value in gradients.items()}
-            v = m.copy()
-
+            if self.m == None:
+                self.m = {key: np.zeros_like(value) for key, value in gradients.items()}
+                self.v = {key: np.zeros_like(value) for key, value in gradients.items()}
+            
             self.t += 1
-            curr_lr = self.lr * np.sqrt(1-self.beta2 ** self.t) / (1-self.beta1 ** self.t)
-
+            
             layers = len(parameters) // 2 # num of parameter layers
             for L in range(1, layers+1):
 
-                pW = parameters["W" + str(L)]
-                pb = parameters["b" + str(L)]
                 gW = gradients["dW" + str(L)]
                 gb = gradients["db" + str(L)]
-                mW = m["dW" + str(L)]
-                mb = m["db" + str(L)]
-                vW = v["dW" + str(L)]
-                vb = v["db" + str(L)]
+                mW_prev = self.m["dW" + str(L)]
+                mb_prev = self.m["db" + str(L)]
+                vW_prev = self.v["dW" + str(L)]
+                vb_prev = self.v["db" + str(L)]
 
-                mW = (self.beta1 * mW + (1-self.beta1) * gW) / (1 - self.beta1 ** self.t)
-                mb = (self.beta1 * mb + (1-self.beta1) * gb) / (1 - self.beta1 ** self.t)
+                
+                mW = self.beta1 * mW_prev + (1-self.beta1) * gW
+                mb = self.beta1 * mb_prev + (1-self.beta1) * gb
+                mW_hat = mW / (1 - self.beta1 ** self.t)
+                mb_hat = mb / (1 - self.beta1 ** self.t)
 
-                vW = (self.beta2 * vW + (1-self.beta2) * np.power(gW, 2)) / (1 - self.beta2 ** self.t)
-                vb = (self.beta2 * vb + (1-self.beta2) * np.power(gb, 2)) / (1 - self.beta2 ** self.t)
+                vW = (self.beta2 * vW_prev + (1-self.beta2) * np.power(gW, 2))
+                vb = (self.beta2 * vb_prev + (1-self.beta2) * np.power(gb, 2))
+                vW_hat = vW / (1 - self.beta2 ** self.t)
+                vb_hat = vb / (1 - self.beta2 ** self.t)
 
                 # update
-                parameters["W" + str(L)] -= curr_lr * mW / (np.sqrt(vW) + self.epsilon)
-                parameters["b" + str(L)] -= curr_lr * mb / (np.sqrt(vb) + self.epsilon)
+                self.m["dW" + str(L)] = mW
+                self.m["db" + str(L)] = mb
+                self.v["dW" + str(L)] = vW
+                self.v["db" + str(L)] = vb
+                parameters["W" + str(L)] -= self.lr * mW_hat / (np.sqrt(vW_hat) + self.epsilon)
+                parameters["b" + str(L)] -= self.lr * mb_hat / (np.sqrt(vb_hat) + self.epsilon)
 
             return parameters
 
